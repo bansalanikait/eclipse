@@ -1,0 +1,18 @@
+{
+  "name": "pipesense-backend",
+  "version": "3.0.0",
+  "description": "PIPE·SENSE v3 — Sewer/Pipeline Inspection Robot Dashboard Server",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "node server.js"
+  },
+  "dependencies": {
+    "cors": "^2.8.5",
+    "express": "^4.18.2",
+    "fs-extra": "^11.2.0",
+    "ws": "^8.16.0"
+  },
+  "keywords": ["pipesense", "sewer", "pipeline", "inspection", "robot", "esp32"],
+  "license": "MIT"
+}

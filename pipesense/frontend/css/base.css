@@ -1,0 +1,309 @@
+/* =============================================
+   PIPE·SENSE v3 — Base Styles
+   Fonts: Orbitron (headers) + Rajdhani (body)
+   ============================================= */
+
+@import url('https://fonts.googleapis.com/css2?family=Orbitron:wght@400;500;600;700;900&family=Rajdhani:wght@300;400;500;600;700&display=swap');
+
+/* ---- CSS Custom Properties ---- */
+:root {
+  /* Colors */
+  --bg:        #060c10;
+  --panel:     #080f16;
+  --border:    #0e2233;
+  --accent:    #00d4ff;
+  --safe:      #00ff9d;
+  --warn:      #ff8c00;
+  --danger:    #ff2244;
+  --water:     #2196f3;
+  --purple:    #9c27b0;
+
+  /* Text */
+  --text-primary:   #c8e6f5;
+  --text-secondary: #5a8aa0;
+  --text-dim:       #2a4a5e;
+
+  /* Sizing */
+  --radius:    6px;
+  --radius-lg: 12px;
+  --gap:       12px;
+
+  /* Transitions */
+  --trans-fast: 0.12s ease;
+  --trans-med:  0.25s ease;
+}
+
+/* ---- Reset ---- */
+*, *::before, *::after {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+html, body {
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+}
+
+body {
+  background: var(--bg);
+  color: var(--text-primary);
+  font-family: 'Rajdhani', sans-serif;
+  font-size: 14px;
+  font-weight: 400;
+  position: relative;
+}
+
+/* ---- Scanline overlay ---- */
+body::after {
+  content: '';
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: 9999;
+  background:
+    repeating-linear-gradient(
+      0deg,
+      transparent,
+      transparent 2px,
+      rgba(0, 212, 255, 0.012) 2px,
+      rgba(0, 212, 255, 0.012) 4px
+    );
+  animation: scanline-drift 8s linear infinite;
+}
+
+@keyframes scanline-drift {
+  0%   { background-position: 0 0; }
+  100% { background-position: 0 200px; }
+}
+
+/* ---- Typography helpers ---- */
+h1, h2, h3, .orb {
+  font-family: 'Orbitron', monospace;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+
+.label {
+  font-family: 'Rajdhani', sans-serif;
+  font-weight: 600;
+  font-size: 11px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--text-secondary);
+}
+
+.value-large {
+  font-family: 'Orbitron', monospace;
+  font-size: 22px;
+  font-weight: 700;
+  color: var(--accent);
+}
+
+/* ---- Scrollbar ---- */
+::-webkit-scrollbar { width: 4px; }
+::-webkit-scrollbar-track { background: var(--bg); }
+::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
+::-webkit-scrollbar-thumb:hover { background: var(--accent); }
+
+/* ---- Utility ---- */
+.flex       { display: flex; }
+.flex-col   { display: flex; flex-direction: column; }
+.align-c    { align-items: center; }
+.justify-c  { justify-content: center; }
+.gap-4      { gap: 4px; }
+.gap-8      { gap: 8px; }
+.gap-12     { gap: 12px; }
+.gap-16     { gap: 16px; }
+.w-full     { width: 100%; }
+.h-full     { height: 100%; }
+.relative   { position: relative; }
+.hidden     { display: none !important; }
+
+/* ---- Status Pills ---- */
+.pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 3px 10px;
+  border-radius: 20px;
+  font-family: 'Rajdhani', sans-serif;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  border: 1px solid transparent;
+}
+
+.pill::before {
+  content: '';
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.pill-ok {
+  background: rgba(0,255,157,0.08);
+  border-color: rgba(0,255,157,0.3);
+  color: var(--safe);
+}
+.pill-ok::before { background: var(--safe); box-shadow: 0 0 6px var(--safe); }
+
+.pill-warn {
+  background: rgba(255,140,0,0.08);
+  border-color: rgba(255,140,0,0.3);
+  color: var(--warn);
+}
+.pill-warn::before { background: var(--warn); }
+
+.pill-danger {
+  background: rgba(255,34,68,0.08);
+  border-color: rgba(255,34,68,0.3);
+  color: var(--danger);
+}
+.pill-danger::before { background: var(--danger); box-shadow: 0 0 6px var(--danger); }
+
+.pill-off {
+  background: rgba(42,74,94,0.2);
+  border-color: var(--border);
+  color: var(--text-dim);
+}
+.pill-off::before { background: var(--text-dim); }
+
+/* ---- Panels ---- */
+.panel {
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+}
+
+.panel-header {
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--border);
+  font-family: 'Orbitron', monospace;
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.15em;
+  color: var(--accent);
+  text-transform: uppercase;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.panel-header::before {
+  content: '';
+  width: 3px;
+  height: 12px;
+  background: var(--accent);
+  border-radius: 2px;
+  box-shadow: 0 0 6px var(--accent);
+}
+
+/* ---- Bar Meter ---- */
+.bar-meter {
+  width: 100%;
+  height: 5px;
+  background: rgba(255,255,255,0.04);
+  border-radius: 3px;
+  overflow: hidden;
+  position: relative;
+}
+
+.bar-fill {
+  height: 100%;
+  border-radius: 3px;
+  transition: width 0.3s ease, background 0.3s ease;
+}
+
+/* ---- Glow effects ---- */
+.glow-accent { text-shadow: 0 0 12px var(--accent); }
+.glow-safe   { text-shadow: 0 0 12px var(--safe); }
+.glow-warn   { text-shadow: 0 0 12px var(--warn); }
+.glow-danger { text-shadow: 0 0 12px var(--danger); }
+
+/* ---- Button base ---- */
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 8px 16px;
+  border-radius: var(--radius);
+  font-family: 'Orbitron', monospace;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  cursor: pointer;
+  border: 1px solid transparent;
+  transition: all var(--trans-fast);
+  user-select: none;
+  outline: none;
+}
+
+.btn-accent {
+  background: rgba(0,212,255,0.1);
+  border-color: var(--accent);
+  color: var(--accent);
+}
+.btn-accent:hover {
+  background: rgba(0,212,255,0.2);
+  box-shadow: 0 0 14px rgba(0,212,255,0.4);
+}
+
+.btn-safe {
+  background: rgba(0,255,157,0.1);
+  border-color: var(--safe);
+  color: var(--safe);
+}
+.btn-safe:hover {
+  background: rgba(0,255,157,0.2);
+  box-shadow: 0 0 14px rgba(0,255,157,0.4);
+}
+
+.btn-danger {
+  background: rgba(255,34,68,0.1);
+  border-color: var(--danger);
+  color: var(--danger);
+}
+.btn-danger:hover {
+  background: rgba(255,34,68,0.2);
+  box-shadow: 0 0 14px rgba(255,34,68,0.4);
+}
+
+.btn-warn {
+  background: rgba(255,140,0,0.1);
+  border-color: var(--warn);
+  color: var(--warn);
+}
+.btn-warn:hover {
+  background: rgba(255,140,0,0.2);
+  box-shadow: 0 0 14px rgba(255,140,0,0.4);
+}
+
+/* ---- Animated accent line ---- */
+@keyframes pulse-border {
+  0%, 100% { opacity: 0.4; }
+  50%       { opacity: 1.0; }
+}
+
+.pulsing-border {
+  animation: pulse-border 2s ease-in-out infinite;
+}
+
+/* ---- Number flicker ---- */
+@keyframes num-flicker {
+  0%   { opacity: 1; }
+  92%  { opacity: 1; }
+  93%  { opacity: 0.7; }
+  94%  { opacity: 1; }
+  99%  { opacity: 1; }
+  100% { opacity: 0.85; }
+}
+
+.num-live {
+  animation: num-flicker 4s ease-in-out infinite;
+}

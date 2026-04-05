@@ -1,0 +1,593 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>PIPE·SENSE — Sewer Inspection System</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Share+Tech+Mono&family=Barlow+Condensed:wght@300;400;600;700;900&display=swap');
+  :root {
+    --bg:#050a0f; --panel:#0a1520; --border:#0d2a3a;
+    --accent:#00e5ff; --warn:#ff6b00; --danger:#ff1744;
+    --safe:#00e676; --text:#b0c8d4;
+    --mono:'Share Tech Mono',monospace; --head:'Barlow Condensed',sans-serif;
+  }
+  *{margin:0;padding:0;box-sizing:border-box;}
+  body{background:var(--bg);color:var(--text);font-family:var(--mono);font-size:12px;height:100vh;overflow:hidden;display:flex;flex-direction:column;}
+  body::before{content:'';position:fixed;inset:0;background:repeating-linear-gradient(0deg,transparent,transparent 2px,rgba(0,229,255,0.015) 2px,rgba(0,229,255,0.015) 4px);pointer-events:none;z-index:9999;}
+  header{display:flex;align-items:center;justify-content:space-between;padding:8px 16px;border-bottom:1px solid var(--border);background:rgba(0,229,255,0.03);flex-shrink:0;}
+  .logo{font-family:var(--head);font-size:22px;font-weight:900;letter-spacing:4px;color:var(--accent);text-shadow:0 0 20px rgba(0,229,255,0.5);}
+  .logo span{color:var(--text);font-weight:300;}
+  .status-bar{display:flex;gap:20px;align-items:center;}
+  .status-item{display:flex;align-items:center;gap:6px;}
+  .dot{width:8px;height:8px;border-radius:50%;}
+  .dot.live{background:var(--safe);box-shadow:0 0 8px var(--safe);animation:pulse 1.5s infinite;}
+  .dot.warn{background:var(--warn);box-shadow:0 0 8px var(--warn);}
+  @keyframes pulse{0%,100%{opacity:1}50%{opacity:0.4}}
+  .timer{font-family:var(--head);font-size:18px;font-weight:700;color:var(--accent);letter-spacing:2px;}
+  .main{flex:1;display:grid;grid-template-columns:220px 1fr 220px;grid-template-rows:1fr 1fr;gap:1px;background:var(--border);overflow:hidden;}
+  .panel{background:var(--panel);padding:12px;overflow:hidden;display:flex;flex-direction:column;gap:8px;}
+  .panel-title{font-family:var(--head);font-weight:700;font-size:11px;letter-spacing:3px;color:var(--accent);text-transform:uppercase;border-bottom:1px solid var(--border);padding-bottom:6px;flex-shrink:0;}
+  .sensor-row{display:flex;flex-direction:column;gap:2px;}
+  .sensor-label{display:flex;justify-content:space-between;color:var(--text);font-size:10px;}
+  .sensor-label .val{color:white;font-weight:bold;}
+  .sensor-label .val.ok{color:var(--safe);}
+  .sensor-label .val.warn{color:var(--warn);}
+  .sensor-label .val.danger{color:var(--danger);}
+  .bar-track{height:6px;background:rgba(255,255,255,0.05);border-radius:3px;overflow:hidden;}
+  .bar-fill{height:100%;border-radius:3px;transition:width 0.4s,background 0.4s;}
+  #map-panel{grid-column:2;grid-row:1/3;background:#050a0f;padding:0;position:relative;}
+  #three-canvas{width:100%;height:100%;display:block;}
+  .view-tabs{position:absolute;top:12px;left:50%;transform:translateX(-50%);display:flex;gap:2px;background:rgba(5,10,15,0.92);border:1px solid var(--border);border-radius:6px;padding:3px;z-index:10;}
+  .view-tab{font-family:var(--head);font-size:11px;font-weight:700;letter-spacing:2px;padding:5px 14px;border-radius:4px;border:none;cursor:pointer;background:transparent;color:var(--text);transition:all 0.2s;}
+  .view-tab.active{background:var(--accent);color:#000;}
+  .view-tab:hover:not(.active){background:rgba(0,229,255,0.1);color:var(--accent);}
+  .map-tl{position:absolute;top:12px;left:12px;pointer-events:none;}
+  .map-title{font-family:var(--head);font-weight:900;font-size:14px;letter-spacing:3px;color:var(--accent);text-shadow:0 0 15px rgba(0,229,255,0.8);}
+  .map-legend{position:absolute;top:12px;right:12px;display:flex;flex-direction:column;gap:4px;background:rgba(5,10,15,0.88);padding:8px 10px;border-radius:4px;border:1px solid var(--border);font-size:9px;pointer-events:none;}
+  .legend-item{display:flex;align-items:center;gap:6px;}
+  .legend-dot{width:8px;height:8px;border-radius:50%;flex-shrink:0;}
+  .map-bottom{position:absolute;bottom:12px;left:12px;right:12px;display:flex;justify-content:space-between;pointer-events:none;}
+  .map-stat{background:rgba(5,10,15,0.88);border:1px solid var(--border);padding:6px 10px;border-radius:4px;}
+  .map-stat-label{font-size:8px;color:var(--text);letter-spacing:2px;}
+  .map-stat-val{font-family:var(--head);font-size:16px;font-weight:700;color:var(--accent);}
+  .ctrl-grid{display:grid;grid-template-columns:repeat(3,1fr);grid-template-rows:repeat(3,1fr);gap:4px;flex:1;}
+  .ctrl-btn{background:rgba(0,229,255,0.05);border:1px solid var(--border);color:var(--text);font-family:var(--mono);font-size:10px;border-radius:4px;cursor:pointer;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;transition:all 0.1s;user-select:none;-webkit-user-select:none;}
+  .ctrl-btn:hover{background:rgba(0,229,255,0.12);border-color:var(--accent);color:var(--accent);}
+  .ctrl-btn.active{background:rgba(0,229,255,0.25)!important;border-color:var(--accent)!important;color:var(--accent)!important;box-shadow:0 0 16px rgba(0,229,255,0.4)!important;}
+  .ctrl-btn.stop-btn{background:rgba(255,23,68,0.1);border-color:rgba(255,23,68,0.3);color:var(--danger);}
+  .ctrl-btn.stop-btn:hover,.ctrl-btn.stop-btn.active{background:rgba(255,23,68,0.3)!important;border-color:var(--danger)!important;color:var(--danger)!important;box-shadow:0 0 16px rgba(255,23,68,0.4)!important;}
+  .ctrl-icon{font-size:20px;line-height:1;}
+  .ctrl-btn.empty{cursor:default;background:transparent!important;border-color:transparent!important;}
+  .mission-btns{display:flex;gap:6px;}
+  .mission-btn{flex:1;padding:8px;border-radius:4px;border:none;font-family:var(--head);font-weight:700;font-size:13px;letter-spacing:2px;cursor:pointer;transition:all 0.2s;}
+  .mission-btn.start{background:linear-gradient(135deg,#00e676,#00bcd4);color:#000;}
+  .mission-btn.start:hover{box-shadow:0 0 20px rgba(0,230,118,0.5);}
+  .mission-btn.stopm{background:linear-gradient(135deg,#ff1744,#ff6b00);color:#fff;}
+  .mission-btn.stopm:hover{box-shadow:0 0 20px rgba(255,23,68,0.5);}
+  .log-list{flex:1;overflow-y:auto;display:flex;flex-direction:column;gap:4px;}
+  .log-list::-webkit-scrollbar{width:3px;}
+  .log-list::-webkit-scrollbar-thumb{background:var(--border);}
+  .log-entry{background:rgba(255,255,255,0.03);border-left:2px solid var(--border);padding:4px 6px;border-radius:0 3px 3px 0;font-size:9px;line-height:1.5;}
+  .log-entry.warn{border-color:var(--warn);}
+  .log-entry.danger{border-color:var(--danger);}
+  .log-entry.info{border-color:var(--accent);}
+  .log-entry.hole{border-color:#ff00ff;}
+  .log-entry.block{border-color:#2196f3;}
+  .log-time{color:var(--accent);}
+  .mini-stats{display:grid;grid-template-columns:1fr 1fr;gap:4px;}
+  .mini-stat{background:rgba(255,255,255,0.03);border:1px solid var(--border);border-radius:3px;padding:5px 6px;}
+  .mini-stat-label{font-size:8px;color:var(--text);letter-spacing:1px;}
+  .mini-stat-val{font-family:var(--head);font-size:14px;font-weight:700;color:white;}
+  .speed-container{display:flex;align-items:center;gap:8px;}
+  .speed-slider{flex:1;accent-color:var(--accent);cursor:pointer;}
+  .speed-val{font-family:var(--head);font-size:16px;font-weight:700;color:var(--accent);min-width:40px;text-align:right;}
+  .tension-display{flex:1;display:flex;align-items:center;justify-content:center;flex-direction:column;gap:6px;}
+  .detect-row{display:flex;justify-content:space-between;align-items:center;border-radius:3px;padding:4px 7px;}
+  .alert-banner{height:28px;display:none;align-items:center;justify-content:center;font-family:var(--head);font-size:12px;font-weight:700;letter-spacing:3px;gap:8px;flex-shrink:0;}
+  .alert-banner.show{display:flex;animation:ap 1s infinite;}
+  .hole-alert{background:rgba(255,0,255,0.15);border-top:1px solid rgba(255,0,255,0.5);color:#ff00ff;}
+  .block-alert{background:rgba(33,150,243,0.15);border-top:1px solid rgba(33,150,243,0.5);color:#2196f3;}
+  .gas-alert{background:rgba(255,23,68,0.15);border-top:1px solid rgba(255,23,68,0.4);color:var(--danger);}
+  @keyframes ap{0%,100%{opacity:1}50%{opacity:0.5}}
+</style>
+</head>
+<body>
+
+<header>
+  <div class="logo">PIPE<span>·</span>SENSE <span style="font-size:11px;font-weight:300;letter-spacing:2px;color:var(--text)">SEWER INSPECTION v3.0</span></div>
+  <div class="status-bar">
+    <div class="status-item"><div class="dot live"></div><span>DEMO MODE</span></div>
+    <div class="status-item"><div class="dot warn"></div><span>ESP32: NOT CONNECTED</span></div>
+    <div class="timer" id="mission-timer">00:00:00</div>
+  </div>
+</header>
+
+<div class="main">
+
+  <!-- LEFT TOP -->
+  <div class="panel">
+    <div class="panel-title">⬡ Gas Sensors</div>
+    <div class="sensor-row">
+      <div class="sensor-label"><span>MQ-4 · Methane CH₄</span><span class="val ok" id="mq4-val">-- ppm</span></div>
+      <div class="bar-track"><div class="bar-fill" id="mq4-bar" style="width:0%"></div></div>
+    </div>
+    <div class="sensor-row">
+      <div class="sensor-label"><span>MQ-135 · Air Quality</span><span class="val ok" id="mq135-val">-- AQI</span></div>
+      <div class="bar-track"><div class="bar-fill" id="mq135-bar" style="width:0%"></div></div>
+    </div>
+    <div class="sensor-row">
+      <div class="sensor-label"><span>MQ-7 · CO</span><span class="val ok" id="mq7-val">-- ppm</span></div>
+      <div class="bar-track"><div class="bar-fill" id="mq7-bar" style="width:0%"></div></div>
+    </div>
+    <div class="sensor-row">
+      <div class="sensor-label"><span>MQ-2 · Smoke/LPG</span><span class="val ok" id="mq2-val">-- ppm</span></div>
+      <div class="bar-track"><div class="bar-fill" id="mq2-bar" style="width:0%"></div></div>
+    </div>
+    <div class="panel-title" style="margin-top:2px">⬡ Environment</div>
+    <div class="sensor-row">
+      <div class="sensor-label"><span>Water Level</span><span class="val ok" id="water-val">--%</span></div>
+      <div class="bar-track"><div class="bar-fill" id="water-bar" style="width:0%;background:#2196f3"></div></div>
+    </div>
+    <div class="sensor-row">
+      <div class="sensor-label"><span>dW/dt rise rate</span><span class="val ok" id="wrate-val">-- %/s</span></div>
+      <div class="bar-track"><div class="bar-fill" id="wrate-bar" style="width:0%;background:#2196f3"></div></div>
+    </div>
+    <div class="mini-stats">
+      <div class="mini-stat"><div class="mini-stat-label">TEMP</div><div class="mini-stat-val" id="temp-val">--°C</div></div>
+      <div class="mini-stat"><div class="mini-stat-label">LIDAR</div><div class="mini-stat-val" id="lidar-val">-- cm</div></div>
+      <div class="mini-stat"><div class="mini-stat-label">dGAS/dt</div><div class="mini-stat-val" id="dgas-val" style="font-size:11px">--</div></div>
+      <div class="mini-stat"><div class="mini-stat-label">HUMIDITY</div><div class="mini-stat-val" id="hum-val">--%</div></div>
+    </div>
+    <div class="detect-row" style="background:rgba(255,0,255,0.07);border:1px solid rgba(255,0,255,0.2);">
+      <span style="font-size:9px;letter-spacing:2px;color:#ff00ff">HOLE DETECT</span>
+      <span id="hole-status" style="font-family:var(--head);font-size:13px;font-weight:700;color:#444">CLEAR</span>
+    </div>
+    <div class="detect-row" style="background:rgba(33,150,243,0.07);border:1px solid rgba(33,150,243,0.2);">
+      <span style="font-size:9px;letter-spacing:2px;color:#2196f3">BLOCKAGE</span>
+      <span id="block-status" style="font-family:var(--head);font-size:13px;font-weight:700;color:#444">CLEAR</span>
+    </div>
+  </div>
+
+  <!-- LEFT BOTTOM -->
+  <div class="panel">
+    <div class="panel-title">⬡ Robot Control</div>
+    <div class="mission-btns">
+      <button class="mission-btn start" onclick="startMission()">▶ START</button>
+      <button class="mission-btn stopm" onclick="stopMission()">■ STOP</button>
+    </div>
+    <div class="ctrl-grid">
+      <div class="ctrl-btn empty"></div>
+      <div class="ctrl-btn" id="btn-F"><div class="ctrl-icon">▲</div><span>FWD</span></div>
+      <div class="ctrl-btn empty"></div>
+      <div class="ctrl-btn" id="btn-L"><div class="ctrl-icon">◀</div><span>LEFT</span></div>
+      <div class="ctrl-btn stop-btn" id="btn-S"><div class="ctrl-icon">⬛</div><span>STOP</span></div>
+      <div class="ctrl-btn" id="btn-R"><div class="ctrl-icon">▶</div><span>RIGHT</span></div>
+      <div class="ctrl-btn empty"></div>
+      <div class="ctrl-btn" id="btn-B"><div class="ctrl-icon">▼</div><span>BACK</span></div>
+      <div class="ctrl-btn empty"></div>
+    </div>
+    <div class="speed-container">
+      <span style="font-size:9px;letter-spacing:2px">SPEED</span>
+      <input type="range" class="speed-slider" id="speed-slider" min="60" max="255" value="180" oninput="updateSpeed(this.value)">
+      <span class="speed-val" id="speed-val">180</span>
+    </div>
+    <div style="font-size:9px;color:var(--text);opacity:0.5;text-align:center">Arrow keys / WASD also work</div>
+  </div>
+
+  <!-- CENTER MAP -->
+  <div id="map-panel">
+    <canvas id="three-canvas"></canvas>
+    <div class="view-tabs">
+      <button class="view-tab active" onclick="setView('gas')" id="tab-gas">⬡ GAS CLOUD</button>
+      <button class="view-tab" onclick="setView('tension')" id="tab-tension">⬡ TENSION</button>
+      <button class="view-tab" onclick="setView('combo')" id="tab-combo">⬡ OVERVIEW</button>
+    </div>
+    <div class="map-tl"><div class="map-title" id="map-title">GAS PARTICLE MAP</div></div>
+    <div class="map-legend" id="map-legend"></div>
+    <div class="map-bottom">
+      <div class="map-stat"><div class="map-stat-label">DISTANCE</div><div class="map-stat-val" id="map-dist">0.0 m</div></div>
+      <div class="map-stat"><div class="map-stat-label">NODES</div><div class="map-stat-val" id="map-nodes">0</div></div>
+      <div class="map-stat"><div class="map-stat-label">HOLES</div><div class="map-stat-val" id="map-holes" style="color:#ff00ff">0</div></div>
+      <div class="map-stat"><div class="map-stat-label">BLOCKAGES</div><div class="map-stat-val" id="map-blocks" style="color:#2196f3">0</div></div>
+      <div class="map-stat"><div class="map-stat-label">MAX STRESS</div><div class="map-stat-val" id="map-stress">-- MPa</div></div>
+    </div>
+  </div>
+
+  <!-- RIGHT TOP -->
+  <div class="panel">
+    <div class="panel-title">⬡ Event Log</div>
+    <div class="log-list" id="log-list">
+      <div class="log-entry info"><span class="log-time">[00:00:00]</span> System ready. Press START.</div>
+    </div>
+  </div>
+
+  <!-- RIGHT BOTTOM -->
+  <div class="panel">
+    <div class="panel-title">⬡ Pipe Stress</div>
+    <div class="tension-display">
+      <svg width="130" height="78" viewBox="0 0 130 78">
+        <defs>
+          <linearGradient id="sg" x1="0%" y1="0%" x2="100%" y2="0%">
+            <stop offset="0%" style="stop-color:#00e676"/>
+            <stop offset="45%" style="stop-color:#ff6b00"/>
+            <stop offset="100%" style="stop-color:#ff1744"/>
+          </linearGradient>
+        </defs>
+        <path d="M10,73 A55,55 0 0,1 120,73" fill="none" stroke="rgba(255,255,255,0.06)" stroke-width="10" stroke-linecap="round"/>
+        <path d="M10,73 A55,55 0 0,1 120,73" fill="none" stroke="url(#sg)" stroke-width="10" stroke-linecap="round" opacity="0.45"/>
+        <line id="stress-needle" x1="65" y1="73" x2="65" y2="20" stroke="white" stroke-width="2.5" stroke-linecap="round" transform="rotate(-90,65,73)"/>
+        <circle cx="65" cy="73" r="5" fill="var(--accent)"/>
+        <text x="5" y="76" fill="#00e676" font-size="8" font-family="Share Tech Mono">0</text>
+        <text x="104" y="76" fill="#ff1744" font-size="8" font-family="Share Tech Mono">350</text>
+      </svg>
+      <div style="text-align:center;margin-top:-4px">
+        <div style="font-size:9px;letter-spacing:2px;color:var(--text)">WALL STRESS</div>
+        <div style="font-family:var(--head);font-size:30px;font-weight:900;color:white" id="stress-mpa">0 <span style="font-size:13px;color:var(--text)">MPa</span></div>
+        <div style="font-size:9px" id="stress-zone">SAFE ZONE</div>
+      </div>
+    </div>
+    <div class="panel-title">⬡ IMU</div>
+    <div class="mini-stats">
+      <div class="mini-stat"><div class="mini-stat-label">ROLL</div><div class="mini-stat-val" id="imu-roll">0.0°</div></div>
+      <div class="mini-stat"><div class="mini-stat-label">PITCH</div><div class="mini-stat-val" id="imu-pitch">0.0°</div></div>
+      <div class="mini-stat"><div class="mini-stat-label">YAW</div><div class="mini-stat-val" id="imu-yaw">0.0°</div></div>
+      <div class="mini-stat"><div class="mini-stat-label">BEND R</div><div class="mini-stat-val" id="imu-bend">∞ m</div></div>
+    </div>
+  </div>
+
+</div>
+
+<div class="alert-banner" id="alert-banner"></div>
+
+<script>
+// ── STATE ──────────────────────────────────────
+let missionActive=false, missionStart=null;
+let missionInt=null, simInt=null, simTick=0;
+let speed=180, totalDist=0, holeCount=0, blockCount=0, maxStress=0;
+let px=0,py=0,pz=0,heading=0;
+let prevMq4=300, prevWater=15;
+let mq4Hist=[], waterHist=[];
+let gasSpike=false, spikeCooldown=0, blockBuild=false;
+let lastHoleTick=0, lastBlockTick=0;
+let viewMode='gas';
+const ESP='192.168.1.100';
+
+// ── THREE.JS ───────────────────────────────────
+const cvs=document.getElementById('three-canvas');
+const mp=document.getElementById('map-panel');
+const renderer=new THREE.WebGLRenderer({canvas:cvs,antialias:true});
+renderer.setPixelRatio(Math.min(devicePixelRatio,2));
+renderer.setClearColor(0x050a0f,1);
+const scene=new THREE.Scene();
+scene.fog=new THREE.FogExp2(0x050a0f,0.012);
+const cam=new THREE.PerspectiveCamera(55,1,0.1,600);
+cam.position.set(0,35,70);
+scene.add(new THREE.AmbientLight(0x112233,1.2));
+const dl=new THREE.DirectionalLight(0x88ccff,0.6);
+dl.position.set(20,40,10); scene.add(dl);
+scene.add(new THREE.GridHelper(300,60,0x0d2a3a,0x080f18));
+
+const gasGrp=new THREE.Group(),tensGrp=new THREE.Group(),comboGrp=new THREE.Group(),markGrp=new THREE.Group();
+scene.add(gasGrp); scene.add(tensGrp); scene.add(comboGrp); scene.add(markGrp);
+tensGrp.visible=false; comboGrp.visible=false;
+
+// Robot
+const rMesh=new THREE.Mesh(new THREE.SphereGeometry(0.9,12,12),new THREE.MeshPhongMaterial({color:0xffff00,emissive:0xaaaa00}));
+const rLight=new THREE.PointLight(0xffff00,4,12); rMesh.add(rLight); scene.add(rMesh);
+
+const nodeData=[];
+
+// Colors
+function gasCol(n){if(n<0.2)return new THREE.Color(0x00e676);if(n<0.5)return new THREE.Color(0xffeb3b);if(n<0.75)return new THREE.Color(0xff6b00);return new THREE.Color(0xff1744);}
+function tensCol(n){if(n<0.2)return new THREE.Color(0x00e676);if(n<0.45)return new THREE.Color(0xffeb3b);if(n<0.72)return new THREE.Color(0xff6b00);return new THREE.Color(0x9c27b0);}
+function comboCol(g,w,s){if(s>0.7)return new THREE.Color(0x9c27b0);if(g>0.6)return new THREE.Color(0xff6b00);if(w>0.5)return new THREE.Color(0x2196f3);return new THREE.Color(0x00e676);}
+
+// Add node to 3D map
+function addNode(x,y,z,gN,wN,sN){
+  const pos=new THREE.Vector3(x,y,z);
+  nodeData.push({pos,gN,wN,sN});
+  rMesh.position.copy(pos);
+  if(nodeData.length<2)return;
+  const prev=nodeData[nodeData.length-2].pos;
+  const dir=new THREE.Vector3().subVectors(pos,prev);
+  const len=dir.length(); if(len<0.01)return;
+  const mid=new THREE.Vector3().addVectors(prev,pos).multiplyScalar(0.5);
+  const up=new THREE.Vector3(0,1,0);
+  const dn=dir.clone().normalize();
+
+  // ── GAS VIEW ──
+  // Pipe shell (dark, semi-transparent)
+  const pGeo=new THREE.CylinderGeometry(0.5,0.5,len,12);
+  const pMat=new THREE.MeshPhongMaterial({color:0x1a3a4a,transparent:true,opacity:0.55});
+  const pipe=new THREE.Mesh(pGeo,pMat); pipe.position.copy(mid); pipe.quaternion.setFromUnitVectors(up,dn); gasGrp.add(pipe);
+  // Glowing end ring
+  const col=gasCol(gN);
+  const rg=new THREE.TorusGeometry(0.5,0.06,8,20);
+  const rm=new THREE.MeshBasicMaterial({color:col,transparent:true,opacity:0.8});
+  const ring=new THREE.Mesh(rg,rm); ring.position.copy(pos); ring.quaternion.setFromUnitVectors(new THREE.Vector3(0,0,1),dn); gasGrp.add(ring);
+  // Particles inside pipe
+  const count=Math.floor(gN*14)+1;
+  const perp1=new THREE.Vector3(1,0,0); if(Math.abs(dn.x)>0.9)perp1.set(0,1,0);
+  const perp2=new THREE.Vector3().crossVectors(dn,perp1).normalize();
+  const perp3=new THREE.Vector3().crossVectors(dn,perp2).normalize();
+  for(let i=0;i<count;i++){
+    const pg=new THREE.SphereGeometry(0.07+Math.random()*0.11,5,5);
+    const pm=new THREE.MeshBasicMaterial({color:col,transparent:true,opacity:0.35+Math.random()*0.55});
+    const p=new THREE.Mesh(pg,pm);
+    const theta=Math.random()*Math.PI*2; const r=Math.random()*0.38; const along=(Math.random()-0.5)*len;
+    p.position.copy(mid).addScaledVector(dn,along).addScaledVector(perp2,Math.cos(theta)*r).addScaledVector(perp3,Math.sin(theta)*r);
+    gasGrp.add(p);
+  }
+
+  // ── TENSION VIEW ──
+  const tc=tensCol(sN);
+  const tGeo=new THREE.CylinderGeometry(0.7,0.7,len,16);
+  const tMat=new THREE.MeshPhongMaterial({color:tc,emissive:tc,emissiveIntensity:0.28,transparent:true,opacity:0.85});
+  const tseg=new THREE.Mesh(tGeo,tMat); tseg.position.copy(mid); tseg.quaternion.setFromUnitVectors(up,dn); tensGrp.add(tseg);
+  if(sN>0.5){
+    const hg=new THREE.CylinderGeometry(1.1,1.1,len*0.25,12,1,true);
+    const hm=new THREE.MeshBasicMaterial({color:tc,transparent:true,opacity:0.13,side:THREE.BackSide});
+    const h=new THREE.Mesh(hg,hm); h.position.copy(pos); h.quaternion.setFromUnitVectors(up,dn); tensGrp.add(h);
+  }
+  if(sN>0.65){
+    const ag=new THREE.ConeGeometry(0.25,0.9,8);
+    const am=new THREE.MeshBasicMaterial({color:tc});
+    const arrow=new THREE.Mesh(ag,am); arrow.position.copy(pos).addScaledVector(new THREE.Vector3(0,1,0),1.4); tensGrp.add(arrow);
+  }
+
+  // ── COMBO VIEW ──
+  const cc=comboCol(gN,wN,sN);
+  const cGeo=new THREE.CylinderGeometry(0.55,0.55,len,10);
+  const cMat=new THREE.MeshPhongMaterial({color:cc,emissive:cc,emissiveIntensity:0.2,transparent:true,opacity:0.8});
+  const cseg=new THREE.Mesh(cGeo,cMat); cseg.position.copy(mid); cseg.quaternion.setFromUnitVectors(up,dn); comboGrp.add(cseg);
+  const sg=new THREE.SphereGeometry(0.4,8,8); const sm=new THREE.MeshPhongMaterial({color:cc,emissive:cc,emissiveIntensity:0.4});
+  const sp=new THREE.Mesh(sg,sm); sp.position.copy(pos); comboGrp.add(sp);
+
+  document.getElementById('map-nodes').textContent=nodeData.length;
+}
+
+function addHoleMarker(x,y,z){
+  const geo=new THREE.TorusGeometry(1.6,0.14,8,24);
+  const mat=new THREE.MeshBasicMaterial({color:0xff00ff});
+  const r=new THREE.Mesh(geo,mat); r.position.set(x,y,z); markGrp.add(r);
+  const pg=new THREE.CylinderGeometry(0.05,0.05,4,6);
+  const pm=new THREE.MeshBasicMaterial({color:0xff00ff,transparent:true,opacity:0.55});
+  const pole=new THREE.Mesh(pg,pm); pole.position.set(x,y+2,z); markGrp.add(pole);
+  const l=new THREE.PointLight(0xff00ff,3,9); l.position.set(x,y,z); markGrp.add(l);
+}
+
+function addBlockMarker(x,y,z){
+  for(let i=0;i<9;i++){
+    const g=new THREE.SphereGeometry(0.28+Math.random()*0.22,8,8);
+    const m=new THREE.MeshPhongMaterial({color:0x2196f3,emissive:0x0d47a1,transparent:true,opacity:0.82});
+    const s=new THREE.Mesh(g,m);
+    s.position.set(x+(Math.random()-0.5),y+(Math.random()-0.5)*0.7,z+(Math.random()-0.5));
+    markGrp.add(s);
+  }
+  const l=new THREE.PointLight(0x2196f3,2.5,8); l.position.set(x,y,z); markGrp.add(l);
+}
+
+// Camera
+let camAngle=0; const camTgt=new THREE.Vector3();
+function animate(){
+  requestAnimationFrame(animate);
+  camAngle+=0.004;
+  if(nodeData.length>0) camTgt.lerp(nodeData[nodeData.length-1].pos,0.03);
+  cam.position.x=camTgt.x+65*Math.sin(camAngle);
+  cam.position.z=camTgt.z+65*Math.cos(camAngle);
+  cam.position.y=camTgt.y+28;
+  cam.lookAt(camTgt);
+  renderer.render(scene,cam);
+}
+function resz(){const w=mp.clientWidth,h=mp.clientHeight;renderer.setSize(w,h);cam.aspect=w/h;cam.updateProjectionMatrix();}
+window.addEventListener('resize',resz); resz(); animate();
+
+// ── VIEW MODES ─────────────────────────────────
+const legends={
+  gas:[{c:'#00e676',l:'Low CH₄ (<200ppm)'},{c:'#ffeb3b',l:'Medium (200-500ppm)'},{c:'#ff6b00',l:'High (500-1000ppm)'},{c:'#ff1744',l:'Danger (>1000ppm)'},{c:'#ff00ff',l:'⚠ HOLE'},{c:'#ffff00',l:'● Robot'}],
+  tension:[{c:'#00e676',l:'Safe (<70 MPa)'},{c:'#ffeb3b',l:'Moderate (70-150)'},{c:'#ff6b00',l:'High (150-250)'},{c:'#9c27b0',l:'Critical (>250 MPa)'},{c:'#ffff00',l:'● Robot'}],
+  combo:[{c:'#00e676',l:'Normal'},{c:'#ff6b00',l:'Gas anomaly'},{c:'#2196f3',l:'Blockage zone'},{c:'#9c27b0',l:'High stress'},{c:'#ff00ff',l:'⚠ Hole'},{c:'#ffff00',l:'● Robot'}]
+};
+const titles={gas:'GAS PARTICLE MAP',tension:'PIPE TENSION MAP',combo:'OVERVIEW MAP'};
+function setView(m){
+  viewMode=m;
+  gasGrp.visible=m==='gas'; tensGrp.visible=m==='tension'; comboGrp.visible=m==='combo';
+  document.getElementById('map-title').textContent=titles[m];
+  ['gas','tension','combo'].forEach(x=>document.getElementById('tab-'+x).classList.toggle('active',x===m));
+  const el=document.getElementById('map-legend');
+  el.innerHTML=legends[m].map(l=>`<div class="legend-item"><div class="legend-dot" style="background:${l.c}"></div><span>${l.l}</span></div>`).join('');
+}
+setView('gas');
+
+// ── CONTROLS ───────────────────────────────────
+['F','B','L','R','S'].forEach(id=>{
+  const el=document.getElementById('btn-'+id);
+  if(!el)return;
+  el.addEventListener('mousedown',e=>{e.preventDefault();press(id);});
+  el.addEventListener('mouseup',  e=>{e.preventDefault();if(id!=='S')release();});
+  el.addEventListener('mouseleave',e=>{if(id!=='S')release();});
+  el.addEventListener('touchstart',e=>{e.preventDefault();press(id);},{passive:false});
+  el.addEventListener('touchend',  e=>{e.preventDefault();if(id!=='S')release();},{passive:false});
+});
+
+function press(cmd){
+  ['F','B','L','R','S'].forEach(id=>document.getElementById('btn-'+id)?.classList.remove('active'));
+  document.getElementById('btn-'+cmd)?.classList.add('active');
+  fetch(`http://${ESP}/cmd?dir=${cmd}&speed=${speed}`).catch(()=>{});
+}
+function release(){
+  ['F','B','L','R','S'].forEach(id=>document.getElementById('btn-'+id)?.classList.remove('active'));
+  fetch(`http://${ESP}/cmd?dir=S&speed=${speed}`).catch(()=>{});
+}
+
+const KM={ArrowUp:'F',ArrowDown:'B',ArrowLeft:'L',ArrowRight:'R',' ':'S',w:'F',s:'B',a:'L',d:'R'};
+document.addEventListener('keydown',e=>{if(KM[e.key]!==undefined){e.preventDefault();press(KM[e.key]);}});
+document.addEventListener('keyup',  e=>{if(KM[e.key]!==undefined&&KM[e.key]!=='S')release();});
+
+function updateSpeed(v){speed=v;document.getElementById('speed-val').textContent=v;}
+
+// ── MISSION ────────────────────────────────────
+function startMission(){
+  if(missionActive)return;
+  missionActive=true; missionStart=Date.now();
+  missionInt=setInterval(updateTimer,1000);
+  simInt=setInterval(simStep,400);
+  addLog('info','Mission started. Mapping initiated.');
+}
+function stopMission(){
+  if(!missionActive)return;
+  missionActive=false;
+  clearInterval(missionInt); clearInterval(simInt);
+  addLog('info',`Complete. ${nodeData.length} nodes · ${holeCount} holes · ${blockCount} blockages · max ${maxStress.toFixed(0)} MPa`);
+  hideAlert();
+}
+function updateTimer(){
+  const e=Math.floor((Date.now()-missionStart)/1000);
+  document.getElementById('mission-timer').textContent=
+    [Math.floor(e/3600),Math.floor((e%3600)/60),e%60].map(v=>String(v).padStart(2,'0')).join(':');
+}
+
+// ── SIMULATION ─────────────────────────────────
+function simStep(){
+  if(!missionActive)return;
+  simTick++;
+
+  // Movement
+  if(simTick%18===0) heading+=(Math.random()-0.5)*55;
+  const rad=heading*Math.PI/180, step=0.7;
+  px+=Math.sin(rad)*step; pz+=Math.cos(rad)*step; py+=(Math.random()-0.48)*0.12;
+  totalDist+=step;
+
+  // Gas spike
+  spikeCooldown=Math.max(0,spikeCooldown-1);
+  if(simTick%25===0&&spikeCooldown===0&&Math.random()>0.55){gasSpike=true;spikeCooldown=8;}
+  else if(spikeCooldown===0)gasSpike=false;
+
+  // Blockage buildup
+  if(simTick%40===0) blockBuild=Math.random()>0.65;
+
+  const mq4=gasSpike?800+Math.random()*800:180+Math.sin(simTick*0.12)*60+Math.random()*50;
+  const mq135=80+Math.random()*25+(gasSpike?110:0);
+  const mq7=8+Math.random()*6+(gasSpike?55:0);
+  const mq2=45+Math.random()*20;
+  const water=blockBuild?Math.min(90,prevWater+2+Math.random()*3):Math.max(10,prevWater+(Math.random()-0.52)*1.5);
+  const temp=22+Math.sin(simTick*0.08)*3;
+  const hum=65+Math.random()*8;
+  const lidar=45+Math.random()*8+(gasSpike?-12:0);
+
+  const dGas=mq4-prevMq4;
+  const dWater=water-prevWater;
+
+  mq4Hist.push(mq4); if(mq4Hist.length>6)mq4Hist.shift();
+  waterHist.push(water); if(waterHist.length>5)waterHist.shift();
+
+  // ── HOLE: gas peaked then dropped sharply ──
+  const mq4Max=Math.max(...mq4Hist);
+  const holeDetect=mq4Max>500&&dGas<-180&&simTick-lastHoleTick>10;
+
+  // ── BLOCKAGE: water rising trend ──
+  const wTrend=waterHist.length>=4?waterHist[waterHist.length-1]-waterHist[0]:0;
+  const blockDetect=wTrend>8&&water>40&&simTick-lastBlockTick>15;
+
+  // IMU + stress
+  const roll=(Math.random()-0.5)*8, pitch=(Math.random()-0.5)*6, yaw=heading%360;
+  const curv=Math.abs(Math.sin(simTick*0.18))*0.09;
+  const bendR=curv>0.005?1/curv:9999;
+  const stress=Math.min(350,200000*0.05/bendR);
+  if(stress>maxStress)maxStress=stress;
+
+  const gN=Math.min(1,mq4/1800), wN=Math.min(1,water/100), sN=Math.min(1,stress/350);
+
+  // Update UI
+  setSensor('mq4',mq4.toFixed(0)+' ppm',Math.min(1,mq4/1800),mq4>700?'danger':mq4>350?'warn':'ok');
+  setSensor('mq135',mq135.toFixed(0)+' AQI',Math.min(1,mq135/350),mq135>200?'danger':mq135>130?'warn':'ok');
+  setSensor('mq7',mq7.toFixed(0)+' ppm',Math.min(1,mq7/200),mq7>40?'danger':mq7>20?'warn':'ok');
+  setSensor('mq2',mq2.toFixed(0)+' ppm',Math.min(1,mq2/400),mq2>150?'warn':'ok');
+  setSensor('water',water.toFixed(1)+'%',wN,water>60?'danger':water>35?'warn':'ok');
+
+  const wrN=Math.min(1,Math.abs(dWater)/5);
+  document.getElementById('wrate-val').textContent=dWater.toFixed(2)+' %/s';
+  document.getElementById('wrate-val').className='val '+(dWater>2?'danger':dWater>0.8?'warn':'ok');
+  document.getElementById('wrate-bar').style.width=(wrN*100)+'%';
+  document.getElementById('wrate-bar').style.background=dWater>2?'var(--danger)':'#2196f3';
+
+  document.getElementById('dgas-val').textContent=(dGas>0?'+':'')+dGas.toFixed(0)+'/s';
+  document.getElementById('dgas-val').style.color=dGas<-150?'#ff00ff':dGas>100?'var(--warn)':'white';
+  document.getElementById('temp-val').textContent=temp.toFixed(1)+'°C';
+  document.getElementById('hum-val').textContent=hum.toFixed(0)+'%';
+  document.getElementById('lidar-val').textContent=lidar.toFixed(0)+' cm';
+  document.getElementById('imu-roll').textContent=roll.toFixed(1)+'°';
+  document.getElementById('imu-pitch').textContent=pitch.toFixed(1)+'°';
+  document.getElementById('imu-yaw').textContent=yaw.toFixed(1)+'°';
+  document.getElementById('imu-bend').textContent=bendR>100?'∞ m':bendR.toFixed(1)+' m';
+
+  const na=-90+sN*180;
+  document.getElementById('stress-needle').setAttribute('transform',`rotate(${na},65,73)`);
+  document.getElementById('stress-mpa').innerHTML=`${stress.toFixed(0)} <span style="font-size:13px;color:var(--text)">MPa</span>`;
+  const zl=stress<70?'SAFE ZONE':stress<150?'MODERATE':stress<250?'HIGH STRESS':'⚠ CRITICAL';
+  const zc=stress<70?'#00e676':stress<150?'#ffeb3b':stress<250?'#ff6b00':'#ff1744';
+  document.getElementById('stress-zone').textContent=zl; document.getElementById('stress-zone').style.color=zc;
+
+  document.getElementById('map-dist').textContent=totalDist.toFixed(1)+' m';
+  document.getElementById('map-stress').textContent=maxStress.toFixed(0)+' MPa';
+
+  addNode(px,py,pz,gN,wN,sN);
+
+  // Events
+  if(holeDetect){
+    lastHoleTick=simTick; holeCount++;
+    addHoleMarker(px,py,pz);
+    document.getElementById('map-holes').textContent=holeCount;
+    document.getElementById('hole-status').textContent='⚠ HOLE'; document.getElementById('hole-status').style.color='#ff00ff';
+    addLog('hole',`HOLE at (${px.toFixed(1)},${py.toFixed(1)},${pz.toFixed(1)}) — gas dropped ${dGas.toFixed(0)} ppm`);
+    showAlert('hole-alert','⚠ PIPE HOLE DETECTED — GAS DROP AT CURRENT POSITION ⚠');
+    setTimeout(()=>{document.getElementById('hole-status').textContent='CLEAR';document.getElementById('hole-status').style.color='#444';},4500);
+  }
+  if(blockDetect){
+    lastBlockTick=simTick; blockCount++;
+    addBlockMarker(px,py,pz);
+    document.getElementById('map-blocks').textContent=blockCount;
+    document.getElementById('block-status').textContent='⚠ BLOCKED'; document.getElementById('block-status').style.color='#2196f3';
+    addLog('block',`BLOCKAGE at (${px.toFixed(1)},${py.toFixed(1)},${pz.toFixed(1)}) — water +${wTrend.toFixed(1)}%`);
+    showAlert('block-alert','⚠ BLOCKAGE DETECTED — WATER LEVEL RISING RAPIDLY ⚠');
+    setTimeout(()=>{document.getElementById('block-status').textContent='CLEAR';document.getElementById('block-status').style.color='#444';},5000);
+  }
+  if(gasSpike&&spikeCooldown===8){
+    addLog('danger',`HIGH GAS (${mq4.toFixed(0)} ppm) at (${px.toFixed(1)},${py.toFixed(1)},${pz.toFixed(1)})`);
+    showAlert('gas-alert','⚠ HIGH METHANE CONCENTRATION DETECTED ⚠');
+  }
+  if(stress>250&&Math.random()>0.93)
+    addLog('warn',`HIGH STRESS ${stress.toFixed(0)} MPa · bend R=${bendR.toFixed(1)}m`);
+
+  prevMq4=mq4; prevWater=water;
+}
+
+// ── HELPERS ────────────────────────────────────
+function setSensor(id,txt,norm,cls){
+  document.getElementById(id+'-val').textContent=txt;
+  document.getElementById(id+'-val').className='val '+cls;
+  const b=document.getElementById(id+'-bar');
+  const c={ok:'var(--safe)',warn:'var(--warn)',danger:'var(--danger)'};
+  if(b){b.style.width=(norm*100)+'%';b.style.background=c[cls];}
+}
+function addLog(type,msg){
+  const l=document.getElementById('log-list');
+  const t=document.getElementById('mission-timer').textContent;
+  const el=document.createElement('div');
+  el.className='log-entry '+type;
+  el.innerHTML=`<span class="log-time">[${t}]</span> ${msg}`;
+  l.appendChild(el); l.scrollTop=l.scrollHeight;
+  while(l.children.length>60)l.removeChild(l.firstChild);
+}
+let alertTO=null;
+function showAlert(cls,msg){
+  const el=document.getElementById('alert-banner');
+  el.className='alert-banner show '+cls; el.textContent=msg;
+  clearTimeout(alertTO); alertTO=setTimeout(hideAlert,5000);
+}
+function hideAlert(){document.getElementById('alert-banner').classList.remove('show');}
+</script>
+</body>
+</html>

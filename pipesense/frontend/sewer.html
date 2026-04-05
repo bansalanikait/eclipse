@@ -1,0 +1,587 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>PIPE·SENSE v3 — Sewer Inspection</title>
+  <meta name="description" content="Real-time sewer inspection dashboard: gas detection, water ingress, blockage mapping and structural analysis." />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Share+Tech+Mono&family=Barlow+Condensed:wght@300;400;600;700;900&display=swap" />
+  <link rel="stylesheet" href="css/base.css" />
+  <link rel="stylesheet" href="css/dashboard.css" />
+  <link rel="stylesheet" href="css/map3d.css" />
+  <style>
+    /* Reference-inspired overrides: Share Tech Mono for telemetry, Barlow Condensed for labels */
+    :root {
+      --mono: 'Share Tech Mono', 'Orbitron', monospace;
+      --head: 'Barlow Condensed', 'Rajdhani', sans-serif;
+    }
+    .s-value, .imu-val, .ov-val, .gauge-mpa, .speed-value, .log-time {
+      font-family: var(--mono) !important;
+    }
+    .s-label, .sensor-section-header, .ov-lbl, .gauge-unit, .speed-label,
+    .imu-lbl, .logo-text, .mode-badge, .gauge-status { 
+      font-family: var(--head) !important; 
+      letter-spacing: 2px;
+    }
+    /* dGas/dt colour coding */
+    .dgas-drop { color: #ff00ff !important; }
+    .dgas-rise { color: var(--warn) !important; }
+    .wrate-high { color: var(--danger) !important; }
+  </style>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+</head>
+<body>
+
+<div id="app">
+
+  <!-- ======= HEADER ======= -->
+  <header id="header">
+    <div class="logo-wrap">
+      <svg class="logo-icon" viewBox="0 0 32 32" fill="none">
+        <rect x="3" y="12" width="26" height="8" rx="4" stroke="currentColor" stroke-width="1.5" fill="currentColor" fill-opacity="0.07"/>
+        <ellipse cx="16" cy="16" rx="6" ry="3.5" stroke="currentColor" stroke-width="1.5"/>
+        <line x1="3" y1="16" x2="8" y2="16" stroke="currentColor" stroke-width="1.5"/>
+        <line x1="24" y1="16" x2="29" y2="16" stroke="currentColor" stroke-width="1.5"/>
+      </svg>
+      <span class="logo-text">PIPE·SENSE</span>
+      <span class="mode-badge sewer">SEWER</span>
+    </div>
+
+    <!-- Status pills center -->
+    <div class="status-bar">
+      <span class="pill pill-off" id="pill-esp32">ESP32</span>
+      <span class="pill pill-off" id="pill-cam">CAM</span>
+      <span class="pill pill-off" id="pill-gps">GPS</span>
+    </div>
+
+    <!-- Mission timer -->
+    <div class="mission-timer" id="mission-timer">00:00:00</div>
+  </header>
+
+  <!-- ======= MAIN GRID ======= -->
+  <div id="main-grid">
+
+    <!-- ===== LEFT PANEL — SEWER SENSORS ===== -->
+    <aside id="left-panel">
+
+      <!-- Gas Sensors -->
+      <div class="sensor-section">
+        <div class="sensor-section-header">Gas Sensors</div>
+
+        <div class="sensor-row">
+          <div class="sensor-label-row">
+            <span class="s-label">MQ-4 Methane</span>
+            <span class="s-value safe" id="sv-mq4">0 <small style="font-size:9px">ppm</small></span>
+          </div>
+          <div class="bar-meter"><div class="bar-fill" id="bar-mq4" style="width:0%;background:var(--safe)"></div></div>
+        </div>
+
+        <div class="sensor-row">
+          <div class="sensor-label-row">
+            <span class="s-label">MQ-135 AQI</span>
+            <span class="s-value safe" id="sv-mq135">0 <small style="font-size:9px">AQI</small></span>
+          </div>
+          <div class="bar-meter"><div class="bar-fill" id="bar-mq135" style="width:0%;background:var(--safe)"></div></div>
+        </div>
+
+        <!-- dGas/dt — rate of change, magenta = dropping fast (hole signature) -->
+        <div class="sensor-row">
+          <div class="sensor-label-row">
+            <span class="s-label">dGAS/dt</span>
+            <span class="s-value" id="sv-dgas" style="font-size:10px">-- ppm/s</span>
+          </div>
+          <div class="bar-meter"><div class="bar-fill" id="bar-dgas" style="width:0%;background:var(--accent)"></div></div>
+        </div>
+      </div>
+
+      <!-- Environment -->
+      <div class="sensor-section">
+        <div class="sensor-section-header">Environment</div>
+
+        <div class="sensor-row">
+          <div class="sensor-label-row">
+            <span class="s-label">Water Level</span>
+            <span class="s-value water" id="sv-water">0 <small style="font-size:9px">%</small></span>
+          </div>
+          <div class="bar-meter"><div class="bar-fill" id="bar-water" style="width:0%;background:var(--water)"></div></div>
+        </div>
+
+        <!-- dW/dt — water rise rate: blockage signature -->
+        <div class="sensor-row">
+          <div class="sensor-label-row">
+            <span class="s-label">dW/dt Rise Rate</span>
+            <span class="s-value" id="sv-wrate" style="font-size:10px">-- %/s</span>
+          </div>
+          <div class="bar-meter"><div class="bar-fill" id="bar-wrate" style="width:0%;background:var(--water)"></div></div>
+        </div>
+
+        <div class="simple-row">
+          <span class="s-label">Temperature</span>
+          <span class="s-value" id="sv-temp">— <small style="font-size:9px">°C</small></span>
+        </div>
+
+        <div class="simple-row">
+          <span class="s-label">Humidity</span>
+          <span class="s-value" id="sv-hum">— <small style="font-size:9px">%</small></span>
+        </div>
+
+        <div class="simple-row">
+          <span class="s-label">Lidar</span>
+          <span class="s-value" id="sv-lidar">— <small style="font-size:9px">cm</small></span>
+        </div>
+      </div>
+
+      <!-- Diagnostics -->
+      <div class="sensor-section">
+        <div class="sensor-section-header">Diagnostics</div>
+
+        <div class="simple-row">
+          <span class="s-label">Current</span>
+          <span class="s-value" id="sv-current">— <small style="font-size:9px">A</small></span>
+        </div>
+
+        <div class="vibration-row">
+          <span class="s-label">Vibration</span>
+          <span class="pill pill-off" id="pill-vib">OFF</span>
+        </div>
+      </div>
+
+    </aside>
+
+    <!-- ===== CENTER — 3D MAP ===== -->
+    <main id="center-panel">
+      <!-- View toggle -->
+      <div class="view-toggle-bar">
+        <button class="view-btn active" id="vb-gas" onclick="threeMap.setView('gas')">⬡ Gas Particles</button>
+        <button class="view-btn" id="vb-tension" onclick="threeMap.setView('tension')">◈ Pipe Tension</button>
+        <button class="view-btn" id="vb-wire" onclick="threeMap.setView('wire')">⬛ Wireframe</button>
+      </div>
+
+      <!-- 3D canvas -->
+      <div id="map-wrap">
+        <canvas id="three-canvas"></canvas>
+
+        <!-- Loading -->
+        <div id="map-loading">
+          <div class="loading-spinner"></div>
+          <div class="loading-text">Initializing 3D Map</div>
+        </div>
+
+        <!-- Reconnect banner -->
+        <div id="reconnect-banner" class="hidden">⚠ RECONNECTING TO ESP32...</div>
+
+        <!-- Overlay: top-left stats -->
+        <div class="map-overlay" id="overlay-stats">
+          <div class="overlay-stat">
+            <span class="ov-lbl">Dist</span>
+            <span class="ov-val" id="ov-dist">0.00 m</span>
+          </div>
+          <div class="overlay-stat">
+            <span class="ov-lbl">Nodes</span>
+            <span class="ov-val" id="ov-nodes">0</span>
+          </div>
+        </div>
+
+        <!-- Overlay: top-right legend -->
+        <div class="map-overlay" id="overlay-legend">
+          <div class="legend-title" id="legend-title">Gas View</div>
+          <div class="legend-item"><span class="legend-dot" style="background:#00ff9d"></span>&lt; 300 ppm — Safe</div>
+          <div class="legend-item"><span class="legend-dot" style="background:#ffd700"></span>300–500 ppm — Warn</div>
+          <div class="legend-item"><span class="legend-dot" style="background:#ff8c00"></span>500–700 ppm — Danger</div>
+          <div class="legend-item"><span class="legend-dot" style="background:#ff2244"></span>&gt; 700 ppm — Critical</div>
+        </div>
+
+        <!-- Overlay: bottom-left anomaly badges -->
+        <div class="map-overlay" id="overlay-anomalies">
+          <div class="anomaly-badge badge-hole">
+            <span class="badge-count" id="cnt-hole">0</span>
+            <span class="badge-lbl">Holes</span>
+          </div>
+          <div class="anomaly-badge badge-blockage">
+            <span class="badge-count" id="cnt-block">0</span>
+            <span class="badge-lbl">Blockages</span>
+          </div>
+          <div class="anomaly-badge badge-bend">
+            <span class="badge-count" id="cnt-bend">0</span>
+            <span class="badge-lbl">Bends</span>
+          </div>
+        </div>
+
+        <!-- Overlay: bottom-right stress -->
+        <div class="map-overlay" id="overlay-stress">
+          <div class="stress-current-wrap">
+            <span class="stress-ov-lbl">Current MPa</span>
+            <span class="stress-ov-val" id="ov-stress-cur">0</span>
+          </div>
+          <div class="stress-max-wrap">
+            <span class="stress-ov-lbl">Max MPa</span>
+            <span class="stress-ov-val" id="ov-stress-max">0</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Alert bar -->
+      <div id="alert-bar" class="hidden">
+        <span class="alert-icon">⚠</span>
+        <span class="alert-text" id="alert-text">Anomaly Detected</span>
+      </div>
+    </main>
+
+    <!-- ===== RIGHT PANEL ===== -->
+    <aside id="right-panel">
+
+      <!-- Mission Controls -->
+      <div class="panel sensor-section">
+        <div class="sensor-section-header">Mission</div>
+        <div style="padding:8px;">
+          <div class="mission-controls">
+            <button class="btn btn-safe" id="btn-start-mission" onclick="startMission()">▶ START</button>
+            <button class="btn btn-danger" id="btn-end-mission" onclick="endMission()">■ END</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Direction Pad -->
+      <div class="panel sensor-section">
+        <div class="sensor-section-header">Controls</div>
+        <div style="padding:8px;">
+          <div class="dpad">
+            <div class="dpad-btn dpad-empty"></div>
+            <div class="dpad-btn" id="cb-F">
+              <svg viewBox="0 0 14 14"><path d="M7 2L12 9H2Z" fill="currentColor"/></svg>
+              FWD
+            </div>
+            <div class="dpad-btn dpad-empty"></div>
+
+            <div class="dpad-btn" id="cb-L">
+              <svg viewBox="0 0 14 14"><path d="M2 7L9 2V12Z" fill="currentColor"/></svg>
+              L
+            </div>
+            <div class="dpad-btn dpad-stop" id="cb-S">
+              <svg viewBox="0 0 14 14"><rect x="3" y="3" width="8" height="8" fill="currentColor"/></svg>
+              STP
+            </div>
+            <div class="dpad-btn" id="cb-R">
+              <svg viewBox="0 0 14 14"><path d="M12 7L5 2V12Z" fill="currentColor"/></svg>
+              R
+            </div>
+
+            <div class="dpad-btn dpad-empty"></div>
+            <div class="dpad-btn" id="cb-B">
+              <svg viewBox="0 0 14 14"><path d="M7 12L2 5H12Z" fill="currentColor"/></svg>
+              BCK
+            </div>
+            <div class="dpad-btn dpad-empty"></div>
+          </div>
+
+          <!-- Speed slider -->
+          <div class="speed-section">
+            <div class="speed-header">
+              <span class="speed-label">Speed</span>
+              <span class="speed-value" id="speed-display">200</span>
+            </div>
+            <input type="range" class="speed-slider" id="speed-slider" min="0" max="255" value="200"
+              oninput="document.getElementById('speed-display').textContent=this.value" />
+          </div>
+        </div>
+      </div>
+
+      <!-- Stress Gauge -->
+      <div class="panel sensor-section">
+        <div class="sensor-section-header">Pipe Stress</div>
+        <div class="stress-gauge-wrap">
+          <div class="gauge-svg-wrap">
+            <svg id="gauge-svg" viewBox="0 0 140 80" width="140" height="80">
+              <!-- Track -->
+              <path d="M 15 70 A 55 55 0 0 1 125 70" stroke="rgba(14,34,51,0.8)" stroke-width="10" fill="none" stroke-linecap="round"/>
+              <!-- Safe zone -->
+              <path d="M 15 70 A 55 55 0 0 1 56 22" stroke="#00ff9d" stroke-width="10" fill="none" stroke-linecap="round" opacity="0.25"/>
+              <!-- Warn zone -->
+              <path d="M 56 22 A 55 55 0 0 1 84 22" stroke="#ff8c00" stroke-width="10" fill="none" stroke-linecap="round" opacity="0.25"/>
+              <!-- Danger zone -->
+              <path d="M 84 22 A 55 55 0 0 1 125 70" stroke="#ff2244" stroke-width="10" fill="none" stroke-linecap="round" opacity="0.25"/>
+              <!-- Needle -->
+              <line id="gauge-needle" x1="70" y1="70" x2="70" y2="22" stroke="var(--accent)" stroke-width="2.5" stroke-linecap="round"
+                style="transform-origin:70px 70px;transform:rotate(-90deg);transition:transform 0.4s ease"/>
+              <circle cx="70" cy="70" r="5" fill="var(--accent)"/>
+            </svg>
+            <div class="gauge-center-val">
+              <div class="gauge-mpa" id="gauge-mpa">0</div>
+              <div class="gauge-unit">MPa</div>
+            </div>
+          </div>
+          <div class="gauge-status safe" id="gauge-status">SAFE</div>
+        </div>
+      </div>
+
+      <!-- IMU -->
+      <div class="panel sensor-section">
+        <div class="sensor-section-header">IMU</div>
+        <div class="imu-grid">
+          <div class="imu-cell">
+            <div class="imu-lbl">Roll</div>
+            <div class="imu-val" id="imu-roll">0.0°</div>
+          </div>
+          <div class="imu-cell">
+            <div class="imu-lbl">Pitch</div>
+            <div class="imu-val" id="imu-pitch">0.0°</div>
+          </div>
+          <div class="imu-cell">
+            <div class="imu-lbl">Yaw</div>
+            <div class="imu-val" id="imu-yaw">0.0°</div>
+          </div>
+          <div class="imu-cell">
+            <div class="imu-lbl">Curvature</div>
+            <div class="imu-val" id="imu-curv">0.00</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Event Log -->
+      <div class="panel sensor-section" style="flex:1;display:flex;flex-direction:column;min-height:0">
+        <div class="sensor-section-header">Event Log</div>
+        <div class="event-log" id="event-log"></div>
+      </div>
+
+    </aside>
+  </div><!-- /main-grid -->
+
+</div><!-- /app -->
+
+<!-- ES Module scripts -->
+<script type="module">
+  import { threeMap }  from './js/three-map.js';
+  import { sensors }   from './js/sensors.js';
+  import { controls }  from './js/controls.js';
+  import { demoData }  from './js/demo-data.js';
+  import { wsClient }  from './js/ws-client.js';
+
+  // Expose to window so inline onclick still works
+  window.threeMap  = threeMap;
+  window.sensors   = sensors;
+  window.controls  = controls;
+  window.demoData  = demoData;
+  window.wsClient  = wsClient;
+
+  // Parse URL params
+  const params = new URLSearchParams(window.location.search);
+  const mode   = params.get('mode') || 'demo';
+  const ip     = params.get('ip')   || '';
+
+  // ---- Mission timer ----
+  let missionStart = null;
+  let missionInterval = null;
+
+  window.startMission = function () {
+    if (missionInterval) return;
+    missionStart = Date.now();
+    const el = document.getElementById('mission-timer');
+    el.classList.add('running');
+    missionInterval = setInterval(() => {
+      const s = Math.floor((Date.now() - missionStart) / 1000);
+      const h = String(Math.floor(s / 3600)).padStart(2,'0');
+      const m = String(Math.floor((s % 3600) / 60)).padStart(2,'0');
+      const sec = String(s % 60).padStart(2,'0');
+      el.textContent = `${h}:${m}:${sec}`;
+    }, 1000);
+    addLog('success', 'Mission started');
+  };
+
+  window.endMission = function () {
+    if (missionInterval) {
+      clearInterval(missionInterval);
+      missionInterval = null;
+    }
+    document.getElementById('mission-timer').classList.remove('running');
+    addLog('warn', 'Mission ended');
+    controls.pressBtn('S');
+  };
+
+  // ---- Logging ----
+  window.addLog = function (type, msg) {
+    const log = document.getElementById('event-log');
+    const now = new Date();
+    const ts  = `${String(now.getHours()).padStart(2,'0')}:${String(now.getMinutes()).padStart(2,'0')}:${String(now.getSeconds()).padStart(2,'0')}`;
+    const el  = document.createElement('div');
+    el.className = `log-entry ${type}`;
+    el.innerHTML = `<span class="log-time">${ts}</span><span class="log-msg">${msg}</span>`;
+    log.prepend(el);
+    while (log.children.length > 60) log.removeChild(log.lastChild);
+  };
+  window.addLog('info', 'Dashboard initialised — mode: ' + mode.toUpperCase());
+
+  // ---- Update UI from packet ----
+  let _prevMq4   = null;
+  let _prevWater = null;
+
+  window.updateSensorUI = function (packet) {
+    // Gas bars
+    setBar('mq4',    packet.mq4,    1000, 'ppm');
+    setBar('mq135',  packet.mq135,  300,  'AQI');
+    setBar('water',  packet.water,  100,  '%', 'water');
+
+    // dGas/dt — rate of MQ-4 change (magenta = sharp drop = hole signature)
+    if (_prevMq4 !== null) {
+      const dGas   = packet.mq4 - _prevMq4;
+      const dgEl   = document.getElementById('sv-dgas');
+      const dgBar  = document.getElementById('bar-dgas');
+      const dgSign = dGas >= 0 ? '+' : '';
+      if (dgEl) {
+        dgEl.textContent = `${dgSign}${dGas.toFixed(0)} ppm/s`;
+        // Magenta = dropping fast (hole); orange = rising fast (spike); accent = normal
+        if      (dGas < -150) { dgEl.className = 's-value dgas-drop'; if (dgBar) { dgBar.style.width = Math.min(100, Math.abs(dGas)/5)+'%'; dgBar.style.background='#ff00ff'; } }
+        else if (dGas >  100) { dgEl.className = 's-value dgas-rise'; if (dgBar) { dgBar.style.width = Math.min(100, dGas/10)+'%'; dgBar.style.background='var(--warn)'; } }
+        else                  { dgEl.className = 's-value';            if (dgBar) { dgBar.style.width = '5%'; dgBar.style.background='var(--accent)'; } }
+      }
+    }
+    _prevMq4 = packet.mq4;
+
+    // dW/dt — water rise rate (blue → red when rising fast = blockage upstream)
+    if (_prevWater !== null) {
+      const dW     = packet.water - _prevWater;
+      const wrEl   = document.getElementById('sv-wrate');
+      const wrBar  = document.getElementById('bar-wrate');
+      if (wrEl) {
+        const sign = dW >= 0 ? '+' : '';
+        wrEl.textContent = `${sign}${dW.toFixed(2)} %/s`;
+        wrEl.className   = dW > 2 ? 's-value wrate-high' : 's-value';
+        if (wrBar) {
+          wrBar.style.width      = Math.min(100, Math.abs(dW) * 20) + '%';
+          wrBar.style.background = dW > 2 ? 'var(--danger)' : 'var(--water)';
+        }
+      }
+    }
+    _prevWater = packet.water;
+
+    setText('sv-temp',    `${packet.temp.toFixed(1)} <small style="font-size:9px">°C</small>`);
+    setText('sv-hum',     `${packet.hum.toFixed(1)} <small style="font-size:9px">%</small>`);
+    setText('sv-lidar',   `${packet.lidar.toFixed(1)} <small style="font-size:9px">cm</small>`);
+    setText('sv-current', `${packet.current.toFixed(2)} <small style="font-size:9px">A</small>`);
+
+    // Vibration pill
+    const vp = document.getElementById('pill-vib');
+    if (packet.vibration) {
+      vp.className = 'pill pill-warn'; vp.textContent = 'ON';
+    } else {
+      vp.className = 'pill pill-off';  vp.textContent = 'OFF';
+    }
+
+    // IMU
+    setText('imu-roll',  `${packet.roll.toFixed(1)}°`);
+    setText('imu-pitch', `${packet.pitch.toFixed(1)}°`);
+    setText('imu-yaw',   `${packet.yaw.toFixed(1)}°`);
+    const curv = Math.sqrt(packet.roll*packet.roll + packet.pitch*packet.pitch) / 90;
+    setText('imu-curv', curv.toFixed(3));
+
+    // Overlays
+    setText('ov-dist', `${(packet.dist||0).toFixed(2)} m`);
+  };
+
+  function setBar(key, val, max, unit, colorClass) {
+    const bar = document.getElementById('bar-'+key);
+    const sv  = document.getElementById('sv-'+key);
+    if (!bar || !sv) return;
+    const pct = Math.min(100, (val / max) * 100);
+    bar.style.width = pct + '%';
+
+    let col, cls;
+    if (colorClass === 'water') {
+      col = 'var(--water)'; cls = 'water';
+    } else if (key === 'mq4' || key === 'mq135') {
+      if (val < 300)      { col = 'var(--safe)';   cls = 'safe';   }
+      else if (val < 500) { col = '#ffd700';        cls = 'warn';   }
+      else if (val < 700) { col = 'var(--warn)';   cls = 'warn';   }
+      else                { col = 'var(--danger)'; cls = 'danger'; }
+    } else {
+      col = 'var(--accent)'; cls = '';
+    }
+    bar.style.background = col;
+    sv.className = `s-value ${cls}`;
+    sv.innerHTML = `${val.toFixed(1)} <small style="font-size:9px">${unit}</small>`;
+  }
+
+  function setText(id, html) {
+    const el = document.getElementById(id);
+    if (el) el.innerHTML = html;
+  }
+
+  // Anomaly counter state
+  let holeCnt = 0, blockCnt = 0, bendCnt = 0, maxStress = 0;
+
+  window.handleDetections = function (detections, packet) {
+    if (!detections) return;
+
+    // Stress gauge
+    const mpa = detections.stressMPa || 0;
+    if (mpa > maxStress) {
+      maxStress = mpa;
+      document.getElementById('ov-stress-max').textContent = maxStress.toFixed(0);
+    }
+    document.getElementById('ov-stress-cur').textContent = mpa.toFixed(0);
+    document.getElementById('gauge-mpa').textContent = mpa.toFixed(0);
+    updateGauge(mpa);
+
+    // Counters — only increment when .detected is explicitly true
+    if (detections.hole      && detections.hole.detected)     { holeCnt++;  document.getElementById('cnt-hole').textContent  = holeCnt;  }
+    if (detections.blockage  && detections.blockage.detected)  { blockCnt++; document.getElementById('cnt-block').textContent = blockCnt; }
+    if (detections.bend      && detections.bend.detected)      { bendCnt++;  document.getElementById('cnt-bend').textContent  = bendCnt;  }
+
+    // Node count
+    document.getElementById('ov-nodes').textContent = threeMap.nodeCount || 0;
+
+    // Alert bar
+    const alertBar = document.getElementById('alert-bar');
+    const alertTxt = document.getElementById('alert-text');
+    if (detections.hole && detections.hole.detected) {
+      alertBar.classList.remove('hidden');
+      alertTxt.textContent = '⚠ STRUCTURAL HOLE DETECTED — Gas/Water Ingress Risk';
+      addLog('hole', 'Hole detected at dist ' + (packet.dist||0).toFixed(2) + 'm');
+    } else if (detections.blockage && detections.blockage.detected) {
+      alertBar.classList.remove('hidden');
+      alertTxt.textContent = '⚠ BLOCKAGE DETECTED — Lidar ' + packet.lidar.toFixed(0) + 'cm';
+      addLog('blockage', 'Blockage at dist ' + (packet.dist||0).toFixed(2) + 'm, lidar=' + packet.lidar.toFixed(0) + 'cm');
+    } else if (detections.bend && detections.bend.detected) {
+      alertBar.classList.remove('hidden');
+      alertTxt.textContent = '⚡ PIPE BEND — Recording trajectory';
+      addLog('warn', 'Bend zone at dist ' + (packet.dist||0).toFixed(2) + 'm');
+    } else {
+      alertBar.classList.add('hidden');
+    }
+  };
+
+  function updateGauge(mpa) {
+    const needle = document.getElementById('gauge-needle');
+    const status = document.getElementById('gauge-status');
+    const stressEl = document.getElementById('ov-stress-cur');
+    // Map 0-500 MPa → -90deg to +90deg rotation
+    const angle = ((mpa / 500) * 180) - 90;
+    needle.style.transform = `rotate(${angle}deg)`;
+
+    if (mpa < 70)       { status.className = 'gauge-status safe';     status.textContent = 'SAFE';     stressEl.className = 'stress-ov-val'; }
+    else if (mpa < 150) { status.className = 'gauge-status moderate'; status.textContent = 'MODERATE'; stressEl.className = 'stress-ov-val'; }
+    else if (mpa < 250) { status.className = 'gauge-status high';     status.textContent = 'HIGH';     stressEl.className = 'stress-ov-val warn'; }
+    else                { status.className = 'gauge-status critical'; status.textContent = 'CRITICAL'; stressEl.className = 'stress-ov-val danger'; }
+  }
+
+  // ---- Init 3D map ----
+  threeMap.init('three-canvas', 'sewer');
+  document.getElementById('map-loading').classList.add('hidden');
+
+  // ---- Init controls ----
+  controls.init('sewer');
+
+  // ---- Launch mode ----
+  if (mode === 'live' && ip) {
+    wsClient.connect(ip, 'sewer');
+  } else {
+    demoData.start('sewer');
+    // Mark ESP32 pill as demo
+    const p = document.getElementById('pill-esp32');
+    p.className = 'pill pill-warn'; p.textContent = 'DEMO';
+  }
+</script>
+
+</body>
+</html>
